@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Stock Correlation</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+    h1 { margin-bottom: 0.5rem; }
+    form { display: grid; gap: 0.75rem; grid-template-columns: 1fr 1fr; align-items: end; }
+    form > div { display: flex; flex-direction: column; }
+    textarea { min-height: 80px; }
+    button { padding: 0.6rem 1rem; cursor: pointer; }
+    #result { margin-top: 2rem; overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; min-width: 500px; }
+    th, td { border: 1px solid #ddd; padding: 0.4rem 0.6rem; text-align: right; }
+    th { background: #f7f7f7; position: sticky; top: 0; z-index: 1; }
+    td.ticker, th.ticker { text-align: left; position: sticky; left: 0; background: #fff; z-index: 2; }
+    .error { color: #b00020; margin-top: 1rem; white-space: pre-wrap; }
+    .loading { opacity: 0.6; pointer-events: none; }
+    small.hint { color: #666; }
+  </style>
+</head>
+<body>
+  <h1>Correlation between stocks</h1>
+  <p class="hint">Enter tickers as a comma- or newline-separated list.</p>
+
+  <form id="corr-form">
+    <div style="grid-column: 1 / 3;">
+      <label for="tickers">Tickers</label>
+      <textarea id="tickers" placeholder="AAPL, MSFT, GOOGL"></textarea>
+    </div>
+
+    <div>
+      <label for="start">Start date</label>
+      <input id="start" type="date" required />
+    </div>
+
+    <div>
+      <label for="end">End date</label>
+      <input id="end" type="date" required />
+    </div>
+
+    <div style="grid-column: 1 / 3;">
+      <button type="submit" id="submit">Calculate</button>
+    </div>
+  </form>
+
+  <div id="error" class="error" hidden></div>
+  <div id="result"></div>
+
+  <script>
+    const form = document.getElementById('corr-form');
+    const errorBox = document.getElementById('error');
+    const resultBox = document.getElementById('result');
+    const submitBtn = document.getElementById('submit');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      clearUI();
+      const { tickers, start, end } = readInputs();
+      if (!tickers.length) {
+        showError('Please provide at least one ticker.');
+        return;
+      }
+
+      try {
+        setLoading(true);
+        // ---- TODO: If your endpoint / payload differs, change it here ----
+        const res = await fetch('https://correlation-proj.onrender.com/correlation', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tickers, start, end })
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`HTTP ${res.status}: ${text}`);
+        }
+        const data = await res.json();
+        // ---- TODO: If your response shape differs, adapt the parsing here ----
+        // expected: { tickers: [...], correlation: [[...], ...] }
+        const tks = data.tickers ?? tickers;
+        const matrix = data.correlation ?? data.matrix ?? data; // try some fallbacks
+        if (!Array.isArray(matrix) || !matrix.length) {
+          throw new Error('Unexpected response format – no matrix found.');
+        }
+        renderTable(tks, matrix);
+      } catch (err) {
+        showError(err.message || String(err));
+      } finally {
+        setLoading(false);
+      }
+    });
+
+    function readInputs() {
+      const tickersRaw = document.getElementById('tickers').value.trim();
+      const tickers = tickersRaw
+        .split(/[,\n]/)
+        .map(t => t.trim().toUpperCase())
+        .filter(Boolean);
+      const start = document.getElementById('start').value;
+      const end = document.getElementById('end').value;
+      return { tickers, start, end };
+    }
+
+    function renderTable(tickers, matrix) {
+      const table = document.createElement('table');
+      const thead = document.createElement('thead');
+      const headerRow = document.createElement('tr');
+
+      // top-left corner blank cell
+      const corner = document.createElement('th');
+      corner.className = 'ticker';
+      corner.textContent = '';
+      headerRow.appendChild(corner);
+
+      tickers.forEach(t => {
+        const th = document.createElement('th');
+        th.textContent = t;
+        headerRow.appendChild(th);
+      });
+      thead.appendChild(headerRow);
+
+      const tbody = document.createElement('tbody');
+      matrix.forEach((row, i) => {
+        const tr = document.createElement('tr');
+        const rowHead = document.createElement('td');
+        rowHead.textContent = tickers[i] ?? `#${i}`;
+        rowHead.className = 'ticker';
+        tr.appendChild(rowHead);
+
+        row.forEach((val, j) => {
+          const td = document.createElement('td');
+          const num = typeof val === 'number' ? val : parseFloat(val);
+          td.textContent = isFinite(num) ? num.toFixed(3) : '';
+          // simple heatmap background
+          if (isFinite(num)) {
+            td.style.background = valueToColor(num);
+          }
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+
+      table.appendChild(thead);
+      table.appendChild(tbody);
+      resultBox.appendChild(table);
+    }
+
+    // Maps [-1, 1] to red -> white -> blue
+    function valueToColor(v) {
+      const n = Math.max(-1, Math.min(1, v));
+      if (n >= 0) {
+        // white to blue
+        const b = Math.round(255);
+        const r = g = Math.round(255 * (1 - n));
+        return `rgb(${r},${g},${b})`;
+      } else {
+        // red to white
+        const r = Math.round(255);
+        const g = b = Math.round(255 * (1 + n));
+        return `rgb(${r},${g},${b})`;
+      }
+    }
+
+    function setLoading(isLoading) {
+      submitBtn.disabled = isLoading;
+      form.classList.toggle('loading', isLoading);
+      submitBtn.textContent = isLoading ? 'Calculating…' : 'Calculate';
+    }
+
+    function clearUI() {
+      errorBox.hidden = true;
+      errorBox.textContent = '';
+      resultBox.innerHTML = '';
+    }
+
+    function showError(msg) {
+      errorBox.hidden = false;
+      errorBox.textContent = msg;
+    }
+  </script>
+</body>
+</html>
+
