@@ -25,6 +25,11 @@ class CorrRequest(BaseModel):
     end: date
 
 
+@app.get("/")
+async def root():
+    return {"Hello": "Correlation"}
+
+
 @app.post("/correlation")
 async def get_data(req: CorrRequest):
     dat = yf.Tickers(req.tickers)
