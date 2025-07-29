@@ -18,7 +18,6 @@
     .error { color: #b00020; margin-top: 1rem; white-space: pre-wrap; }
     .loading { opacity: 0.6; pointer-events: none; }
 
-    /* Chip selector styles */
     #ticker-select { width: 100%; padding: 0.5rem; font-size: 1rem; margin-bottom: 0.5rem; }
     .selected-box {
       display: flex;
@@ -89,12 +88,11 @@
     const selectedBox = document.getElementById('selected-box');
     const selectedTickers = new Set();
 
-    // Load tickers dynamically
     async function loadTickers() {
       try {
         const res = await fetch('http://localhost:8000/tickers');
         const tickers = await res.json();
-        for (const ticker of tickers) {
+        for (const ticker of tickers.sort()) {
           const opt = document.createElement('option');
           opt.value = ticker;
           opt.textContent = ticker;
@@ -104,6 +102,19 @@
         showError('Failed to load tickers: ' + err.message);
       }
     }
+
+    tickerSelect.addEventListener('change', () => {
+      const val = tickerSelect.value;
+      if (val && !selectedTickers.has(val)) {
+        selectedTickers.add(val);
+        addChip(val);
+
+        // Remove from dropdown
+        const optionToRemove = Array.from(tickerSelect.options).find(opt => opt.value === val);
+        if (optionToRemove) optionToRemove.remove();
+      }
+      tickerSelect.value = '';
+    });
 
     function addChip(ticker) {
       const chip = document.createElement('div');
@@ -115,20 +126,28 @@
       btn.onclick = () => {
         selectedTickers.delete(ticker);
         chip.remove();
+
+        // Re-add to dropdown and keep sorted
+        const opt = document.createElement('option');
+        opt.value = ticker;
+        opt.textContent = ticker;
+        tickerSelect.appendChild(opt);
+        sortDropdown(tickerSelect);
       };
 
       chip.appendChild(btn);
       selectedBox.appendChild(chip);
     }
 
-    tickerSelect.addEventListener('change', () => {
-      const val = tickerSelect.value;
-      if (val && !selectedTickers.has(val)) {
-        selectedTickers.add(val);
-        addChip(val);
+    function sortDropdown(select) {
+      const options = Array.from(select.options)
+        .filter(o => o.value !== "")
+        .sort((a, b) => a.value.localeCompare(b.value));
+      select.innerHTML = '<option value="">-- Select ticker --</option>';
+      for (const opt of options) {
+        select.appendChild(opt);
       }
-      tickerSelect.value = '';
-    });
+    }
 
     window.addEventListener('DOMContentLoaded', () => {
       loadTickers();

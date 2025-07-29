@@ -1,4 +1,3 @@
-from asyncio import gather
 from contextlib import asynccontextmanager
 from datetime import date
 
@@ -73,17 +72,15 @@ async def get_tickers(request: Request) -> list[str]:
 @app.post("/correlation")
 async def get_data(req: CorrRequest, request: Request) -> CorrResponse:
     redis = request.app.state.redis_client
-    data = await gather(
-        *[
-            redis.zrangebyscore(
+    async with redis.pipeline(transaction=False) as pipe:
+        for ticker in req.tickers:
+            pipe.zrangebyscore(
                 ticker,
                 min=int(pd.Timestamp(req.start).timestamp()),
                 max=int(pd.Timestamp(req.end).timestamp()),
                 withscores=True,
             )
-            for ticker in req.tickers
-        ]
-    )
+        data = await pipe.execute()
     prices = pd.DataFrame(dict(zip(req.tickers, map(convert_to_ts, data))))
     mat = prices.pct_change(
         periods=req.return_period,
