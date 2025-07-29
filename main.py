@@ -1,4 +1,5 @@
 import logging
+import pickle
 from contextlib import asynccontextmanager
 from datetime import date
 from logging.config import dictConfig
@@ -19,9 +20,7 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.redis_client = await Redis.from_url(
-        settings.redis_url, decode_responses=True
-    )
+    app.state.redis_client = await Redis.from_url(settings.redis_url)
     dictConfig(settings.logging.to_dict())
     yield
     await app.state.redis_client.close()
@@ -74,21 +73,24 @@ async def get_tickers(request: Request) -> list[str]:
     return list(sorted(tickers))
 
 
+# @alru_cache()
+async def get_data_redis(tickers, redis):
+    logger.info(f"Queryng Redis for {len(tickers)} tickers")
+    async with redis.pipeline(transaction=False) as pipe:
+        for ticker in tickers:
+            pipe.get(ticker)
+        data = await pipe.execute()
+    logger.info("Creating a DataFrame and calculating the correlation.")
+    data = [pickle.loads(d) for d in data]
+    prices = pd.DataFrame(dict(zip(tickers, data))).sort_index()
+    return prices
+
+
 @app.post("/correlation")
 async def get_data(req: CorrRequest, request: Request) -> CorrResponse:
     redis = request.app.state.redis_client
-    logger.info(f"Queryng Redis for {len(req.tickers)} tickers")
-    async with redis.pipeline(transaction=False) as pipe:
-        for ticker in req.tickers:
-            pipe.zrangebyscore(
-                ticker,
-                min=int(pd.Timestamp(req.start).timestamp()),
-                max=int(pd.Timestamp(req.end).timestamp()),
-                withscores=True,
-            )
-        data = await pipe.execute()
-    logger.info("Creating a DataFrame and calculating the correlation.")
-    prices = pd.DataFrame(dict(zip(req.tickers, map(convert_to_ts, data))))
+    prices = await get_data_redis(req.tickers, redis)
+    prices = prices.loc[req.start : req.end]
     mat = prices.pct_change(
         periods=req.return_period,
         fill_method=None,
@@ -102,8 +104,12 @@ async def get_data(req: CorrRequest, request: Request) -> CorrResponse:
 @app.post("/cache")
 async def cache(payload: CacheRequest, request: Request):
     redis = request.app.state.redis_client
+    logger.info("Getting tickers from Yahoo")
     dat = yf.Tickers(payload.tickers)
     close_px = dat.history(period=None, start=payload.start, end=payload.end)["Close"]
-    for ticker, ts in close_px.items():
-        data = {str(price): dt.timestamp() for dt, price in ts.items()}
-        await redis.zadd(ticker, data)  # TODO: Come up with a better key in redis
+    logger.info("Storing them in redis")
+    async with redis.pipeline(transaction=False) as pipe:
+        for ticker, ts_data in close_px.to_dict().items():
+            pipe.set(ticker, pickle.dumps(ts_data))
+        await pipe.execute()
+    logger.info("Saving completed.")
