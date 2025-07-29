@@ -90,7 +90,7 @@
 
     async function loadTickers() {
       try {
-        const res = await fetch('http://localhost:8000/tickers');
+        const res = await fetch('https://correlation-proj.onrender.com/tickers');
         const tickers = await res.json();
         for (const ticker of tickers.sort()) {
           const opt = document.createElement('option');
@@ -166,7 +166,7 @@
 
       try {
         setLoading(true);
-        const res = await fetch('http://localhost:8000/correlation', {
+        const res = await fetch('https://correlation-proj.onrender.com/correlation', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ tickers, start, end })

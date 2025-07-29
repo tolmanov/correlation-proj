@@ -1,1 +1,19 @@
 redis_url = "@empty"
+
+
+[logging.formatters.simple]
+format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+[logging.handlers.console]
+class = "logging.StreamHandler"
+level = "INFO"
+formatter = "simple"
+stream = "ext://sys.stdout"
+
+[logging.root]
+level = "INFO"
+handlers = ["console"]
+
+[logging]
+version = 1
+disable_existing_loggers = false
