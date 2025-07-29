@@ -1,11 +1,13 @@
 [project]
 name = "qrt-hw"
 version = "0.1.0"
-description = "Add your description here"
+description = "Correlation matix for stocks"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "dynaconf>=3.2.11",
     "fastapi>=0.116.1",
+    "redis>=6.2.0",
     "uvicorn>=0.35.0",
     "yfinance>=0.2.65",
 ]
