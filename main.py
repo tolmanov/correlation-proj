@@ -62,10 +62,6 @@ async def root():
     return {"Hello": "Correlation"}
 
 
-def convert_to_ts(inp: list[tuple[str, float]]):
-    return {pd.Timestamp(ts, unit="s"): float(val) for val, ts in inp}
-
-
 @app.get("/tickers")
 async def get_tickers(request: Request) -> list[str]:
     redis = request.app.state.redis_client
@@ -73,7 +69,6 @@ async def get_tickers(request: Request) -> list[str]:
     return list(sorted(tickers))
 
 
-# @alru_cache()
 async def get_data_redis(tickers, redis):
     logger.info(f"Queryng Redis for {len(tickers)} tickers")
     async with redis.pipeline(transaction=False) as pipe:
@@ -82,7 +77,8 @@ async def get_data_redis(tickers, redis):
         data = await pipe.execute()
     logger.info("Creating a DataFrame and calculating the correlation.")
     data = [pickle.loads(d) for d in data]
-    prices = pd.DataFrame(dict(zip(tickers, data))).sort_index()
+    prices = pd.concat(data, axis=1)
+    prices.columns = tickers
     return prices
 
 
@@ -106,10 +102,14 @@ async def cache(payload: CacheRequest, request: Request):
     redis = request.app.state.redis_client
     logger.info("Getting tickers from Yahoo")
     dat = yf.Tickers(payload.tickers)
-    close_px = dat.history(period=None, start=payload.start, end=payload.end)["Close"]
+    hist = dat.history(period=None, start=payload.start, end=payload.end)
+    if hist.empty:
+        return
+    close_px = hist["Close"]
     logger.info("Storing them in redis")
     async with redis.pipeline(transaction=False) as pipe:
-        for ticker, ts_data in close_px.to_dict().items():
-            pipe.set(ticker, pickle.dumps(ts_data))
-        await pipe.execute()
+        for ticker in close_px.columns:
+            pipe.set(ticker, pickle.dumps(close_px[ticker]))
+        res = await pipe.execute()
     logger.info("Saving completed.")
+    return res
