@@ -18,6 +18,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "coverage>=7.10.1",
     "fakeredis>=2.30.3",
     "httpx>=0.28.1",
     "ipython>=9.4.0",

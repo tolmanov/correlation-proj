@@ -20,22 +20,14 @@ jobs:
       with:
         python-version: '3.12'
 
-    - name: Install uv
-      run: |
-        curl -LsSf https://astral.sh/uv/install.sh | sh
+    - name: Install the latest version of uv and set the python version
+      uses: astral-sh/setup-uv@v6
 
-    - name: Sync dependencies with uv
+    - name: Test with python ${{ matrix.python-version }}
       run: |
-        uv sync --python=3.12
-
-    - name: Run tests with coverage
-      run: |
-        uv venv
-        source .venv/bin/activate
-        pip install coverage pytest
-        coverage run -m pytest tests/
-        coverage report
-        coverage xml
+        uv run --frozen coverage run -m pytest
+        uv run coverage report
+        uv run coverage xml
 
     - name: Upload coverage to GitHub summary
       uses: actions/upload-artifact@v4
