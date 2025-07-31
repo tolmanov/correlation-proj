@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from redis.asyncio import Redis
 from starlette.requests import Request
 
-from config import settings
+from corr import settings
 
 logger = logging.getLogger(__name__)
 
@@ -76,9 +76,8 @@ async def get_data_redis(tickers, redis):
             pipe.get(ticker)
         data = await pipe.execute()
     logger.info("Creating a DataFrame and calculating the correlation.")
-    data = [pickle.loads(d) for d in data]
+    data = {t: pickle.loads(datum) for t, datum in zip(tickers, data) if datum}
     prices = pd.concat(data, axis=1)
-    prices.columns = tickers
     return prices
 
 

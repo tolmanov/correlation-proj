@@ -10,4 +10,4 @@ wheels/
 .venv
 
 # Ignore dynaconf secret files
-.secrets.*
+config/.secrets.toml

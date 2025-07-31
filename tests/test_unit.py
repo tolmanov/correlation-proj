@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 from fakeredis.aioredis import FakeRedis
 
-from main import app  # your FastAPI app
+from corr.main import app  # your FastAPI app
 
 
 @pytest.fixture
@@ -152,7 +152,7 @@ async def test_correlation_date_range_subset(async_client, fake_redis):
 
 # ---------- Endpoint: /cache ----------
 @pytest.mark.asyncio
-@patch("main.yf.Tickers")
+@patch("corr.main.yf.Tickers")
 async def test_cache_endpoint_success(mock_yf_tickers, async_client, fake_redis):
     # Mock yfinance data with proper MultiIndex columns structure
     mock_history_data = pd.DataFrame(
@@ -194,7 +194,7 @@ async def test_cache_endpoint_success(mock_yf_tickers, async_client, fake_redis)
 
 
 @pytest.mark.asyncio
-@patch("main.yf.Tickers")
+@patch("corr.main.yf.Tickers")
 async def test_cache_endpoint_single_ticker(mock_yf_tickers, async_client, fake_redis):
     # Mock yfinance data for single ticker
     mock_history_data = pd.DataFrame({("Close", "NVDA"): [500.0, 505.0, 510.0]})
@@ -220,7 +220,7 @@ async def test_cache_endpoint_single_ticker(mock_yf_tickers, async_client, fake_
 
 
 @pytest.mark.asyncio
-@patch("main.yf.Tickers")
+@patch("corr.main.yf.Tickers")
 async def test_cache_endpoint_empty_tickers(mock_yf_tickers, async_client, fake_redis):
     # Mock empty yfinance response
     mock_history_data = pd.DataFrame()
@@ -238,7 +238,7 @@ async def test_cache_endpoint_empty_tickers(mock_yf_tickers, async_client, fake_
 @pytest.mark.asyncio
 async def test_cache_request_validation():
     # Test invalid payload structure
-    from main import CacheRequest
+    from corr.main import CacheRequest
     from pydantic import ValidationError
 
     # Test missing required fields
@@ -252,7 +252,7 @@ async def test_cache_request_validation():
 
 @pytest.mark.asyncio
 async def test_correlation_request_validation():
-    from main import CorrRequest
+    from corr.main import CorrRequest
 
     # Test valid request with defaults
     req = CorrRequest(
@@ -275,7 +275,7 @@ async def test_correlation_request_validation():
 
 # ---------- Integration test: Cache then Correlate ----------
 @pytest.mark.asyncio
-@patch("main.yf.Tickers")
+@patch("corr.main.yf.Tickers")
 async def test_cache_then_correlate_integration(
     mock_yf_tickers, async_client, fake_redis
 ):
@@ -310,7 +310,11 @@ async def test_cache_then_correlate_integration(
 
     # Then, get correlation
     corr_payload = {
-        "tickers": ["AMZN", "META"],
+        "tickers": [
+            "AMZN",
+            "GOOG",
+            "META",
+        ],  # Checking that a missing ticker is ignored
         "start": "2024-07-01",
         "end": "2024-07-04",
         "return_period": 1,

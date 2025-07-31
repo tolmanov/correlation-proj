@@ -1,7 +1,12 @@
+[build-system]
+requires = ["hatchling >= 1.26"]
+build-backend = "hatchling.build"
+
+
 [project]
 name = "qrt-hw"
-version = "0.1.0"
 description = "Correlation matix for stocks"
+dynamic = ["version"]
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
