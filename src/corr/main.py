@@ -1,3 +1,11 @@
+"""
+main_documented.py
+
+This FastAPI application provides a backend service to cache and compute correlations
+between stock tickers over a given date range using data from Yahoo Finance.
+It uses Redis for caching both the time series data and associated metadata.
+"""
+
 import logging
 import pickle
 from contextlib import asynccontextmanager
@@ -18,11 +26,13 @@ from src.corr import settings
 
 logger = logging.getLogger(__name__)
 
-METADATA_KEY_PREFIX = "meta:"
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """
+    Initialize Redis client and configure logging on application startup,
+    then close the Redis connection on shutdown.
+    """
     print(settings.redis_url)
     app.state.redis_client = await Redis.from_url(settings.redis_url)
     dictConfig(settings.logging.to_dict())
@@ -30,17 +40,20 @@ async def lifespan(app: FastAPI):
     await app.state.redis_client.close()
 
 
+# Create FastAPI app with lifespan handler
 app = FastAPI(lifespan=lifespan)
 
+# Allow CORS from any origin
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # or ["http://localhost:5500"] etc.
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
+# Request and response models
 class CacheRequest(BaseModel):
     tickers: list[str]
     start: date
@@ -69,26 +82,32 @@ class ErrorResponse(BaseModel):
 @app.get("/", include_in_schema=False)
 @app.head("/", include_in_schema=False)
 async def root():
+    """Simple health check endpoint."""
     return {"Hello": "Correlation"}
 
 
 @app.get("/tickers")
 async def get_tickers(request: Request) -> list[str]:
+    """
+    Retrieve list of available tickers from Redis,
+    excluding internal metadata keys.
+    """
     redis = request.app.state.redis_client
     tickers = await redis.keys()
-    # Filter out metadata keys
     tickers = [
         t.decode() if isinstance(t, bytes) else t
         for t in tickers
-        if not (isinstance(t, bytes) and t.decode().startswith(METADATA_KEY_PREFIX))
-        and not (isinstance(t, str) and t.startswith(METADATA_KEY_PREFIX))
+        if not (
+            isinstance(t, bytes) and t.decode().startswith(settings.metadata_prefix)
+        )
+        and not (isinstance(t, str) and t.startswith(settings.metadata_prefix))
     ]
     return list(sorted(tickers))
 
 
 async def get_ticker_metadata(redis: Redis, ticker: str) -> Dict[str, Any] | None:
-    """Get metadata for a ticker from Redis"""
-    metadata_key = f"{METADATA_KEY_PREFIX}{ticker}"
+    """Get metadata for a specific ticker from Redis."""
+    metadata_key = f"{settings.metadata_prefix}{ticker}"
     metadata = await redis.get(metadata_key)
     if metadata:
         return pickle.loads(metadata)
@@ -98,8 +117,8 @@ async def get_ticker_metadata(redis: Redis, ticker: str) -> Dict[str, Any] | Non
 async def set_ticker_metadata(
     redis: Redis, ticker: str, start_date: date, end_date: date
 ):
-    """Set metadata for a ticker in Redis"""
-    metadata_key = f"{METADATA_KEY_PREFIX}{ticker}"
+    """Save metadata for a ticker to Redis."""
+    metadata_key = f"{settings.metadata_prefix}{ticker}"
     metadata = {"start_date": start_date, "end_date": end_date}
     await redis.set(metadata_key, pickle.dumps(metadata))
 
@@ -107,7 +126,10 @@ async def set_ticker_metadata(
 async def validate_date_range(
     redis: Redis, tickers: list[str], start_date: date, end_date: date
 ) -> tuple[bool, str]:
-    """Validate if the requested date range is within the cached data range for all tickers"""
+    """
+    Ensure requested date range is covered by cached metadata
+    for each of the tickers.
+    """
     for ticker in tickers:
         metadata = await get_ticker_metadata(redis, ticker)
         if not metadata:
@@ -135,6 +157,7 @@ async def validate_date_range(
 
 
 async def get_data_redis(tickers, redis):
+    """Retrieve and combine time series data for tickers from Redis."""
     logger.info(f"Querying Redis for {len(tickers)} tickers")
     async with redis.pipeline(transaction=False) as pipe:
         for ticker in tickers:
@@ -148,9 +171,12 @@ async def get_data_redis(tickers, redis):
 
 @app.post("/correlation", response_model=CorrResponse | ErrorResponse)
 async def get_data(req: CorrRequest, request: Request):
+    """
+    Compute and return a correlation matrix for the given tickers over a date range.
+    Validates date range against cached metadata before processing.
+    """
     redis = request.app.state.redis_client
 
-    # Validate date range against cached data
     is_valid, error_message = await validate_date_range(
         redis, req.tickers, req.start, req.end
     )
@@ -163,11 +189,9 @@ async def get_data(req: CorrRequest, request: Request):
     try:
         prices = await get_data_redis(req.tickers, redis)
         prices = prices.loc[req.start : req.end]
-        mat = prices.pct_change(
-            periods=req.return_period,
-            fill_method=None,
-        ).corr(min_periods=req.min_periods)
-        # Needed for serialization - FIXME: Find a better way
+        mat = prices.pct_change(periods=req.return_period, fill_method=None).corr(
+            min_periods=req.min_periods
+        )
         mat = mat.replace(np.nan, None)
         logger.info("Calculation completed.")
         return CorrResponse(
@@ -188,12 +212,17 @@ async def get_data(req: CorrRequest, request: Request):
 
 @app.post("/cache")
 async def cache(payload: CacheRequest, request: Request):
+    """
+    Download historical data from Yahoo Finance for selected tickers,
+    store them in Redis, and save associated metadata.
+    """
     redis = request.app.state.redis_client
     logger.info("Getting tickers from Yahoo")
     dat = yf.Tickers(payload.tickers)
     hist = dat.history(period=None, start=payload.start, end=payload.end)
     if hist.empty:
         return
+
     close_px = hist["Close"]
     logger.info("Storing them in redis")
     async with redis.pipeline(transaction=False) as pipe:
@@ -201,7 +230,6 @@ async def cache(payload: CacheRequest, request: Request):
             pipe.set(ticker, pickle.dumps(close_px[ticker]))
         res = await pipe.execute()
 
-    # Store metadata for each ticker
     logger.info("Storing metadata for tickers")
     async with redis.pipeline(transaction=False) as pipe:
         for ticker in close_px.columns:

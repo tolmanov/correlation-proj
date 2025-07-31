@@ -1,4 +1,5 @@
 redis_url = "@empty"
+metadata_prefix = "meta:"
 
 
 [logging.formatters.simple]

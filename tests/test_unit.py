@@ -6,7 +6,8 @@ import pandas as pd
 import pytest
 from fakeredis.aioredis import FakeRedis
 
-from src.corr.main import app, METADATA_KEY_PREFIX  # your FastAPI app
+from corr.main import app  # your FastAPI app
+from corr import settings
 
 
 @pytest.fixture
@@ -24,8 +25,8 @@ async def fake_redis():
     metadata_aapl = {"start_date": date(2024, 7, 1), "end_date": date(2024, 7, 3)}
     metadata_goog = {"start_date": date(2024, 7, 1), "end_date": date(2024, 7, 3)}
 
-    await redis.set(f"{METADATA_KEY_PREFIX}AAPL", pickle.dumps(metadata_aapl))
-    await redis.set(f"{METADATA_KEY_PREFIX}GOOG", pickle.dumps(metadata_goog))
+    await redis.set(f"{settings.metadata_prefix}AAPL", pickle.dumps(metadata_aapl))
+    await redis.set(f"{settings.metadata_prefix}GOOG", pickle.dumps(metadata_goog))
 
     return redis
 
@@ -65,13 +66,15 @@ async def test_get_tickers(async_client):
     tickers = response.json()
     assert sorted(tickers) == ["AAPL", "GOOG"]
     # Ensure metadata keys are filtered out
-    assert not any(ticker.startswith(METADATA_KEY_PREFIX) for ticker in tickers)
+    assert not any(ticker.startswith(settings.metadata_prefix) for ticker in tickers)
 
 
 @pytest.mark.asyncio
 async def test_get_tickers_filters_metadata_keys(async_client, fake_redis):
     # Add some additional metadata keys
-    await fake_redis.set(f"{METADATA_KEY_PREFIX}TEST", pickle.dumps({"test": "data"}))
+    await fake_redis.set(
+        f"{settings.metadata_prefix}TEST", pickle.dumps({"test": "data"})
+    )
 
     response = await async_client.get("/tickers")
     assert response.status_code == 200
@@ -79,7 +82,7 @@ async def test_get_tickers_filters_metadata_keys(async_client, fake_redis):
 
     # Should only return actual ticker names, not metadata keys
     assert sorted(tickers) == ["AAPL", "GOOG"]
-    assert f"{METADATA_KEY_PREFIX}TEST" not in tickers
+    assert f"{settings.metadata_prefix}TEST" not in tickers
 
 
 # ---------- Endpoint: /correlation with metadata validation ----------
@@ -278,8 +281,8 @@ async def test_cache_endpoint_success_with_metadata(
     assert tsla_data is not None
 
     # Verify metadata was stored
-    msft_metadata = await fake_redis.get(f"{METADATA_KEY_PREFIX}MSFT")
-    tsla_metadata = await fake_redis.get(f"{METADATA_KEY_PREFIX}TSLA")
+    msft_metadata = await fake_redis.get(f"{settings.metadata_prefix}MSFT")
+    tsla_metadata = await fake_redis.get(f"{settings.metadata_prefix}TSLA")
 
     assert msft_metadata is not None
     assert tsla_metadata is not None
@@ -324,7 +327,7 @@ async def test_cache_endpoint_single_ticker(mock_yf_tickers, async_client, fake_
     assert nvda_data is not None
 
     # Verify metadata was stored
-    nvda_metadata = await fake_redis.get(f"{METADATA_KEY_PREFIX}NVDA")
+    nvda_metadata = await fake_redis.get(f"{settings.metadata_prefix}NVDA")
     assert nvda_metadata is not None
 
     nvda_meta = pickle.loads(nvda_metadata)
@@ -521,7 +524,7 @@ async def test_correlation_server_error_handling(async_client, fake_redis):
 
     # Add metadata for the corrupt ticker
     metadata = {"start_date": date(2024, 7, 1), "end_date": date(2024, 7, 3)}
-    await fake_redis.set(f"{METADATA_KEY_PREFIX}CORRUPT", pickle.dumps(metadata))
+    await fake_redis.set(f"{settings.metadata_prefix}CORRUPT", pickle.dumps(metadata))
 
     payload = {
         "tickers": ["CORRUPT"],
