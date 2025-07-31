@@ -24,6 +24,8 @@ jobs:
       uses: astral-sh/setup-uv@v6
 
     - name: Test with python ${{ matrix.python-version }}
+      env:
+        CORR_REDIS_URL: "test"
       run: |
         uv run --frozen coverage run -m pytest
         uv run coverage report
