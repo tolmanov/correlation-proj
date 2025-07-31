@@ -26,10 +26,25 @@ This is a full-stack web application for computing the correlation between multi
 2. The frontend sends a POST request to the backend to compute the correlation matrix.
 3. The backend:
    - Checks Redis for cached data.
-   - If data is missing, it fetches from Yahoo Finance and stores it.
-   - Computes percentage change and correlation using `pandas`.
+   - Computes percentage daily change and correlation using `pandas`.
    - Returns the matrix as JSON.
+   - Also is capable of caching the data 
 4. The frontend renders the matrix with color gradients for easier interpretation.
+
+## Potential improvements
+* Add a time-series oriented DB to keep the data local and less dependent on data vendor
+* Add a scheduled daily update of the data
+* Add an endpoint to clear the cache
+* Add a fallback to Yahoo finance in case ticker is not supported
+* Add semantic search to retrieve the corresponding ticker
+
+## 📌 Limitations
+
+* Free tier cloud deployment [Onrender.com](https://render.com/pricing) only allows 25Mb RAM on Key-Value (Redis alternative), therefore, I am limited with a number of stocks and depth of the data to cache and serve.
+* There's no time-series support on Key-Value, therefore blobs of the data are stored on per-ticker basis in the hash table.
+* Correlation is calculated using the daily stock returns 
+* Every cell is using only window of data available for both tickers (even if the intersecting period is only 10 days)
+
 
 ## API Endpoints
 
@@ -119,9 +134,6 @@ uv run --frozen uvicorn corr.main:app
 
 Open `index.html` directly or serve it using a simple HTTP server:
 
-## 📌 Limitations
-
-_(To be added)_
 
 ## 🧠 Project Goal
 
