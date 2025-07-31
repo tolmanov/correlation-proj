@@ -1,10 +1,9 @@
 [build-system]
-requires = ["hatchling >= 1.26"]
-build-backend = "hatchling.build"
-
+requires = ["setuptools>=42", "setuptools_scm[toml]>=6.0"]
+build-backend = "setuptools.build_meta"
 
 [project]
-name = "qrt-hw"
+name = "corr"
 description = "Correlation matix for stocks"
 dynamic = ["version"]
 readme = "README.md"

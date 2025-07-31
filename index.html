@@ -2,11 +2,26 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Stock Correlation</title>
+  <title>Stock Correlation (Environment Switching Demo)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
     h1 { margin-bottom: 0.5rem; }
+    .env-indicator {
+      background: #e3f2fd;
+      padding: 0.5rem 1rem;
+      border-radius: 5px;
+      margin-bottom: 1rem;
+      font-size: 0.9rem;
+      border-left: 4px solid #2196f3;
+    }
+    .env-indicator.development { background: #fff3e0; border-left-color: #ff9800; }
+    .env-switcher {
+      margin-bottom: 1rem;
+      padding: 1rem;
+      background: #f5f5f5;
+      border-radius: 5px;
+    }
     form { display: grid; gap: 0.75rem; grid-template-columns: 1fr 1fr; align-items: end; }
     form > div { display: flex; flex-direction: column; }
     button { padding: 0.6rem 1rem; cursor: pointer; }
@@ -15,7 +30,7 @@
     th, td { border: 1px solid #ddd; padding: 0.4rem 0.6rem; text-align: right; }
     th { background: #f7f7f7; position: sticky; top: 0; z-index: 1; }
     td.ticker, th.ticker { text-align: left; position: sticky; left: 0; background: #fff; z-index: 2; }
-    .error { color: #b00020; margin-top: 1rem; white-space: pre-wrap; }
+    .error { color: #b00020; margin-top: 1rem; white-space: pre-wrap; background: #ffeaea; padding: 1rem; border-radius: 5px; border: 1px solid #ffcdd2; }
     .loading { opacity: 0.6; pointer-events: none; }
 
     #ticker-select { width: 100%; padding: 0.5rem; font-size: 1rem; margin-bottom: 0.5rem; }
@@ -49,6 +64,23 @@
 </head>
 <body>
   <h1>Correlation between stocks</h1>
+
+  <!-- Environment Indicator -->
+  <div id="env-indicator" class="env-indicator">
+    <strong>Environment:</strong> <span id="env-name"></span> |
+    <strong>API URL:</strong> <span id="api-url"></span>
+  </div>
+
+  <!-- Environment Switcher (only visible in development) -->
+  <div id="env-switcher" class="env-switcher" style="display: none;">
+    <label for="env-select">Switch Environment:</label>
+    <select id="env-select">
+      <option value="auto">Auto-detect</option>
+      <option value="development">Development (localhost)</option>
+      <option value="production">Production (Render)</option>
+    </select>
+  </div>
+
   <p class="hint">Select one or more tickers from the dropdown. You can remove any from the box.</p>
 
   <form id="corr-form">
@@ -79,6 +111,128 @@
   <div id="result"></div>
 
   <script>
+    // ========================================
+    // ENVIRONMENT CONFIGURATION
+    // ========================================
+
+    const CONFIG = {
+      development: {
+        API_BASE_URL: 'http://localhost:8000',
+        name: 'Development'
+      },
+      production: {
+        API_BASE_URL: 'https://correlation-proj.onrender.com',
+        name: 'Production'
+      }
+    };
+
+    // Method 1: Auto-detect based on hostname
+    function detectEnvironment() {
+      const hostname = window.location.hostname;
+
+      if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.')) {
+        return 'development';
+      }
+      return 'production';
+    }
+
+    // Method 2: Check for URL parameters (?env=development)
+    function getEnvironmentFromURL() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const envParam = urlParams.get('env');
+      return envParam && CONFIG[envParam] ? envParam : null;
+    }
+
+    // Method 3: Check localStorage for saved preference
+    function getEnvironmentFromStorage() {
+      return localStorage.getItem('api-environment');
+    }
+
+    // Method 4: Manual override (for development/testing)
+    function getManualEnvironment() {
+      // Uncomment one of these lines to force an environment:
+      // return 'development';
+      // return 'production';
+      return null;
+    }
+
+    // Determine current environment with priority order
+    function getCurrentEnvironment() {
+      return getManualEnvironment() ||
+             getEnvironmentFromURL() ||
+             getEnvironmentFromStorage() ||
+             detectEnvironment();
+    }
+
+    // Get current configuration
+    let currentEnv = getCurrentEnvironment();
+    let currentConfig = CONFIG[currentEnv];
+
+    // Update UI to show current environment
+    function updateEnvironmentUI() {
+      const envIndicator = document.getElementById('env-indicator');
+      const envName = document.getElementById('env-name');
+      const apiUrl = document.getElementById('api-url');
+      const envSwitcher = document.getElementById('env-switcher');
+      const envSelect = document.getElementById('env-select');
+
+      envName.textContent = currentConfig.name;
+      apiUrl.textContent = currentConfig.API_BASE_URL;
+
+      // Add visual indicator
+      envIndicator.className = `env-indicator ${currentEnv}`;
+
+      // Show environment switcher in development or with ?debug=1
+      const urlParams = new URLSearchParams(window.location.search);
+      if (currentEnv === 'development' || urlParams.get('debug') === '1') {
+        envSwitcher.style.display = 'block';
+        envSelect.value = currentEnv;
+      }
+    }
+
+    // Environment switcher handler
+    document.getElementById('env-select')?.addEventListener('change', (e) => {
+      const newEnv = e.target.value;
+      if (newEnv === 'auto') {
+        localStorage.removeItem('api-environment');
+        currentEnv = detectEnvironment();
+      } else if (CONFIG[newEnv]) {
+        localStorage.setItem('api-environment', newEnv);
+        currentEnv = newEnv;
+      }
+
+      currentConfig = CONFIG[currentEnv];
+      updateEnvironmentUI();
+
+      // Reload tickers for new environment
+      loadTickers();
+    });
+
+    // ========================================
+    // API HELPER FUNCTIONS
+    // ========================================
+
+    function getApiUrl(endpoint) {
+      return `${currentConfig.API_BASE_URL}${endpoint}`;
+    }
+
+    async function apiCall(endpoint, options = {}) {
+      const url = getApiUrl(endpoint);
+      console.log(`API Call: ${options.method || 'GET'} ${url}`);
+
+      try {
+        const response = await fetch(url, options);
+        return response;
+      } catch (error) {
+        console.error(`API Error for ${url}:`, error);
+        throw new Error(`Failed to connect to ${currentConfig.name} API: ${error.message}`);
+      }
+    }
+
+    // ========================================
+    // APPLICATION CODE
+    // ========================================
+
     const form = document.getElementById('corr-form');
     const errorBox = document.getElementById('error');
     const resultBox = document.getElementById('result');
@@ -90,14 +244,26 @@
 
     async function loadTickers() {
       try {
-        const res = await fetch('https://correlation-proj.onrender.com/tickers');
+        clearUI();
+        const res = await apiCall('/tickers');
+
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+        }
+
         const tickers = await res.json();
+
+        // Clear existing options (except the first one)
+        tickerSelect.innerHTML = '<option value="">-- Select ticker --</option>';
+
         for (const ticker of tickers.sort()) {
           const opt = document.createElement('option');
           opt.value = ticker;
           opt.textContent = ticker;
           tickerSelect.appendChild(opt);
         }
+
+        console.log(`Loaded ${tickers.length} tickers from ${currentConfig.name}`);
       } catch (err) {
         showError('Failed to load tickers: ' + err.message);
       }
@@ -150,6 +316,7 @@
     }
 
     window.addEventListener('DOMContentLoaded', () => {
+      updateEnvironmentUI();
       loadTickers();
       document.getElementById('start').value = '2024-01-01';
       document.getElementById('end').value = '2025-07-01';
@@ -166,21 +333,32 @@
 
       try {
         setLoading(true);
-        const res = await fetch('https://correlation-proj.onrender.com/correlation', {
+        const res = await apiCall('/correlation', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ tickers, start, end })
         });
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(`HTTP ${res.status}: ${text}`);
-        }
+
         const data = await res.json();
+
+        // Handle error responses
+        if (!res.ok) {
+          const errorMsg = data.detail?.message || data.message || `HTTP ${res.status}: ${res.statusText}`;
+          throw new Error(errorMsg);
+        }
+
+        // Check for fail status in response
+        if (data.status === 'fail') {
+          throw new Error(data.message || 'Request failed');
+        }
+
         const tks = data.tickers ?? tickers;
         const matrix = data.correlation ?? data.matrix ?? data;
+
         if (!Array.isArray(matrix) || !matrix.length) {
           throw new Error('Unexpected response format – no matrix found.');
         }
+
         renderTable(tks, matrix);
       } catch (err) {
         showError(err.message || String(err));
